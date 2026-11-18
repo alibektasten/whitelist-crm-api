@@ -1,0 +1,14 @@
+{
+  "name": "whitelist-crm-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CRM calls and meeting scheduling API — WhiteList Software Developer assignment",
+  "type": "module",
+  "engines": { "node": ">=24.12.0" },
+  "scripts": {
+    "start": "node src/server.ts",
+    "dev": "node --watch src/server.ts",
+    "test": "node --test tests/*.test.ts",
+    "test:coverage": "node --test --experimental-test-coverage tests/*.test.ts"
+  }
+}
