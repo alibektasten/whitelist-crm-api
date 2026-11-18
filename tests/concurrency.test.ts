@@ -31,12 +31,22 @@ async function compete(t: TestContext, path: string, operations: object[]): Prom
         if (code !== 0) { const error = new Error(`Worker exited with ${code}`); readyReject(error); reject(error); }
       });
     });
-    return { worker, ready, result };
+    const exited = new Promise<void>((resolve, reject) => worker.once('exit', code => {
+      if (code === 0) resolve();
+      else reject(new Error(`Worker exited with ${code}`));
+    }));
+    return { worker, ready, result, exited };
   });
   // Both connections complete migrations before the barrier is released.
-  const results = Promise.all(contestants.map(contestant => contestant.result));
-  await Promise.all(contestants.map(contestant => contestant.ready));
-  for (const contestant of contestants) contestant.worker.postMessage('go');
+  const start = async () => {
+    await Promise.all(contestants.map(contestant => contestant.ready));
+    for (const contestant of contestants) contestant.worker.postMessage('go');
+  };
+  const [, results] = await Promise.all([
+    start(),
+    Promise.all(contestants.map(contestant => contestant.result)),
+    Promise.all(contestants.map(contestant => contestant.exited)),
+  ]);
   return results;
 }
 
@@ -111,4 +121,33 @@ test('file persistence and idempotent migrations preserve records and seed manag
     assert.equal(second.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get()?.count, 1);
     assert.equal(second.prepare('PRAGMA foreign_keys').get()?.foreign_keys, 1);
   } finally { second.close(); }
+});
+
+test('eight simultaneous writers reserve a manager slot exactly once', { timeout: 20_000 }, async t => {
+  const path = fileDatabase(t);
+  const seed = openDatabase(path);
+  for (let i = 1; i <= 8; i++) company(seed, i);
+  seed.close();
+  const result = await compete(t, path, Array.from({ length: 8 }, (_, i) => ({ body: slot(i + 1) })));
+  assert.equal(result.filter(outcome => outcome.status === 201).length, 1);
+  assert.equal(result.filter(outcome => outcome.status === 409 && outcome.code === 'MANAGER_OVERLAP').length, 7);
+});
+
+test('a meeting_set call racing cancellation is either recorded before it or rejected after it', { timeout: 20_000 }, async t => {
+  const path = fileDatabase(t);
+  const seed = openDatabase(path);
+  const meeting = createMeeting(seed, slot(company(seed).id));
+  seed.close();
+  const results = await compete(t, path, [
+    { operation: 'cancel', meetingId: meeting.id, body: { status: 'cancelled' } },
+    { operation: 'call', body: { companyId: 1, result: 'meeting_set', meetingId: meeting.id } },
+  ]);
+  assert.equal(results[0].status, 200);
+  assert.ok([201, 422].includes(results[1].status));
+  const db = openDatabase(path);
+  try {
+    assert.equal(db.prepare('SELECT status FROM meetings WHERE id = ?').get(meeting.id)?.status, 'cancelled');
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM calls').get()?.count, results[1].status === 201 ? 1 : 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM meeting_history').get()?.count, 2);
+  } finally { db.close(); }
 });

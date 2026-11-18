@@ -33,3 +33,20 @@ test('calendar dates reject nonexistent days, missing zero-padding and missing d
   assert.equal(parseDate('2024-02-29'), '2024-02-29');
   for (const value of ['2026-02-29', '2026-11-31', '2026-1-01', '', null]) assert.throws(() => parseDate(value), AppError);
 });
+
+test('every minute in a full Almaty week matches the independent working-hours calendar', () => {
+  // Known Monday at Almaty midnight, November 2026 (UTC+05).
+  const mondayMidnight = Date.parse('2026-11-15T19:00:00Z');
+  let accepted = 0;
+  for (let day = 0; day < 7; day++) {
+    for (let minute = 0; minute < 24 * 60; minute++) {
+      const timestamp = new Date(mondayMidnight + (day * 1440 + minute) * 60_000).toISOString();
+      const expected = day < 5 && minute >= 9 * 60 && minute <= 17 * 60;
+      if (expected) {
+        assert.equal(meetingWindow(timestamp).endsAt - Date.parse(timestamp), 3_600_000);
+        accepted++;
+      } else assert.throws(() => meetingWindow(timestamp), { status: 422 }, timestamp);
+    }
+  }
+  assert.equal(accepted, 5 * 481);
+});

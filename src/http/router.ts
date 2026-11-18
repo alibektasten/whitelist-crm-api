@@ -26,7 +26,12 @@ function methods(method: string, allowed: string[]): void {
 
 export function route(db: DatabaseSync, request: ApiRequest, clock: Clock = Date.now): ApiResponse {
   const { method, body } = request;
-  const url = new URL(request.url, 'http://localhost');
+  let url: URL;
+  try {
+    url = new URL(request.url, 'http://localhost');
+  } catch {
+    throw new AppError(400, 'INVALID_URL', 'Request URL is invalid.');
+  }
   const path = url.pathname;
 
   if (path === '/health') {

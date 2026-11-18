@@ -17,8 +17,8 @@ export function company(db: DatabaseSync, number = 1) {
 
 export const slot = (companyId: number, startsAt = '2026-11-23T05:00:00Z', managerId = 1) => ({ companyId, managerId, startsAt });
 
-export async function httpFixture(t: TestContext) {
-  const db = openDatabase();
+export async function httpFixture(t: TestContext, options: { databasePath?: string } = {}) {
+  const db = openDatabase(options.databasePath);
   const errors: unknown[] = [];
   const server = createApp(db, { logError: error => errors.push(error) });
   t.after(() => {

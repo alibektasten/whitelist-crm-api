@@ -15,6 +15,7 @@ export function id(value: unknown, field: string): number {
 
 export function text(value: unknown, field: string, max: number): string {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max) invalid(`${field} must be a non-empty string of at most ${max} characters.`);
+  if (value.includes('\u0000')) invalid(`${field} must not contain null characters.`);
   return value.trim();
 }
 

@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { openDatabase } from '../src/db/database.ts';
 import { httpFixture, company, slot } from './helpers/fixture.ts';
 
 test('HTTP end-to-end: create company, book, log call, filter, move, inspect history, cancel', async t => {
@@ -117,4 +121,54 @@ test('HTTP not-found and method errors; health and manager seed discovery', asyn
   const wrongMethod = await api.request('DELETE', '/companies');
   assert.equal(wrongMethod.status, 405);
   assert.equal(wrongMethod.headers.get('allow'), 'GET, POST');
+});
+
+test('malformed absolute request targets return a client error, not 500', async t => {
+  const api = await httpFixture(t);
+  for (const target of ['http://[', 'http://%']) {
+    const response = await api.raw('GET', target);
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error.code, 'INVALID_URL');
+  }
+  assert.deepEqual(api.errors, []);
+});
+
+test('null characters in user text return validation errors instead of SQLite CHECK failures', async t => {
+  const api = await httpFixture(t);
+  for (const name of ['\u0000', '\u0000Company', 'Company\u0000Name']) {
+    const response = await api.request('POST', '/companies', { name, bin: '000000000001', phone: '+77010000001' });
+    assert.equal(response.status, 422);
+  }
+  const c = company(api.db);
+  assert.equal((await api.request('POST', '/calls', { companyId: c.id, result: 'refused', notes: '\u0000' })).status, 422);
+  assert.deepEqual(api.errors, []);
+});
+
+test('HTTP database contention returns 503 with Retry-After and then recovers', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'whitelist-http-lock-'));
+  const path = join(directory, 'crm.sqlite');
+  const api = await httpFixture(t, { databasePath: path });
+  const holder = openDatabase(path);
+  t.after(() => { holder.close(); rmSync(directory, { recursive: true, force: true }); });
+  const c = company(api.db);
+  api.db.exec('PRAGMA busy_timeout = 20');
+  holder.exec('BEGIN IMMEDIATE');
+  try {
+    const response = await api.request('POST', '/meetings', slot(c.id));
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get('retry-after'), '1');
+    assert.equal(response.body.error.code, 'DATABASE_BUSY');
+  } finally { holder.exec('ROLLBACK'); }
+  assert.equal((await api.request('POST', '/meetings', slot(c.id))).status, 201);
+  assert.deepEqual(api.errors, []);
+});
+
+test('unexpected database failures are logged and return a sanitized 500', async t => {
+  const api = await httpFixture(t);
+  api.db.exec('DROP TABLE companies');
+  const response = await api.request('GET', '/companies');
+  assert.equal(response.status, 500);
+  assert.equal(response.body.error.code, 'INTERNAL_ERROR');
+  assert.equal(api.errors.length, 1);
+  assert.doesNotMatch(JSON.stringify(response.body), /SELECT|sqlite|no such table/i);
 });

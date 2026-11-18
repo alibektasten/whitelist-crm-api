@@ -15,3 +15,14 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm test
       - run: npm run test:network
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up --build -d --wait --wait-timeout 60
+      - run: curl --fail http://127.0.0.1:3000/health
+      - if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down -v

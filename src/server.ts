@@ -2,7 +2,7 @@ import { openDatabase } from './db/database.ts';
 import { createApp } from './http/app.ts';
 
 const port = Number(process.env.PORT ?? 3000);
-if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be an integer between 1 and 65535.');
+if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('PORT must be an integer between 0 and 65535 (0 chooses a free port).');
 const host = process.env.HOST ?? '127.0.0.1';
 const db = openDatabase(process.env.DATABASE_PATH ?? './data/crm.sqlite');
 const server = createApp(db);
@@ -11,7 +11,11 @@ server.on('error', error => {
   db.close();
   process.exitCode = 1;
 });
-server.listen(port, host, () => console.log(`CRM API is listening on http://${host}:${port}`));
+server.listen(port, host, () => {
+  const address = server.address();
+  const actualPort = address && typeof address !== 'string' ? address.port : port;
+  console.log(`CRM API is listening on http://${host.includes(':') ? `[${host}]` : host}:${actualPort}`);
+});
 
 let stopping = false;
 function shutdown(): void {
