@@ -28,8 +28,9 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 }
 
 function send(response: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
-  response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers });
-  response.end(JSON.stringify(body));
+  const json = JSON.stringify(body);
+  response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(json), 'cache-control': 'no-store', ...headers });
+  response.end(json);
 }
 
 export function createApp(db: DatabaseSync, options: { clock?: Clock; logError?: (error: unknown, requestId: string) => void } = {}) {
