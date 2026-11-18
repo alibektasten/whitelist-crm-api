@@ -1,0 +1,110 @@
+@baseUrl = http://127.0.0.1:3000
+# Для свежей БД. Иначе подставьте ID из ответов POST.
+@companyId = 1
+@otherCompanyId = 2
+@meetingId = 1
+
+### Health -> 200
+GET {{baseUrl}}/health
+
+### Managers seeded by migration -> 200
+GET {{baseUrl}}/managers
+
+### Create company -> 201 (synthetic BIN)
+POST {{baseUrl}}/companies
+Content-Type: application/json
+
+{"name":"ТОО Demo One","bin":"000000000101","phone":"+77010000001"}
+
+### Create second company -> 201
+POST {{baseUrl}}/companies
+Content-Type: application/json
+
+{"name":"ТОО Demo Two","bin":"000000000102","phone":"+77010000002"}
+
+### Log unanswered call -> 201
+POST {{baseUrl}}/calls
+Content-Type: application/json
+
+{"companyId":{{companyId}},"result":"no_answer","notes":"Повторить звонок позже"}
+
+### Filter and paginate -> 200
+GET {{baseUrl}}/companies?status=no_answer&page=1&pageSize=10
+
+### Missing meeting for meeting_set -> 422 MEETING_REQUIRED
+POST {{baseUrl}}/calls
+Content-Type: application/json
+
+{"companyId":{{companyId}},"result":"meeting_set"}
+
+### Monday 10:00–11:00 Almaty -> 201
+POST {{baseUrl}}/meetings
+Content-Type: application/json
+
+{"companyId":{{companyId}},"managerId":1,"startsAt":"2026-11-23T05:00:00Z"}
+
+### Log meeting_set after booking -> 201
+POST {{baseUrl}}/calls
+Content-Type: application/json
+
+{"companyId":{{companyId}},"result":"meeting_set","meetingId":{{meetingId}},"notes":"Клиент подтвердил"}
+
+### Overlapping 10:30–11:30 Almaty -> 409 MANAGER_OVERLAP
+POST {{baseUrl}}/meetings
+Content-Type: application/json
+
+{"companyId":{{otherCompanyId}},"managerId":1,"startsAt":"2026-11-23T05:30:00Z"}
+
+### Start 17:30 Almaty -> 422 (ends outside office hours)
+POST {{baseUrl}}/meetings
+Content-Type: application/json
+
+{"companyId":{{otherCompanyId}},"managerId":1,"startsAt":"2026-11-23T12:30:00Z"}
+
+### Saturday -> 422
+POST {{baseUrl}}/meetings
+Content-Type: application/json
+
+{"companyId":{{otherCompanyId}},"managerId":1,"startsAt":"2026-11-21T05:00:00Z"}
+
+### Adjacent 11:00–12:00 Almaty -> 201
+POST {{baseUrl}}/meetings
+Content-Type: application/json
+
+{"companyId":{{otherCompanyId}},"managerId":1,"startsAt":"2026-11-23T06:00:00Z"}
+
+### Different manager, same company -> 409 COMPANY_ACTIVE_MEETING
+POST {{baseUrl}}/meetings
+Content-Type: application/json
+
+{"companyId":{{companyId}},"managerId":2,"startsAt":"2026-11-24T05:00:00Z"}
+
+### Monday schedule -> 200
+GET {{baseUrl}}/managers/1/schedule?date=2026-11-23
+
+### Reschedule the first meeting to Tuesday 11:00 -> 200
+PATCH {{baseUrl}}/meetings/{{meetingId}}
+Content-Type: application/json
+
+{"startsAt":"2026-11-24T06:00:00Z"}
+
+### Original time and chronological history -> 200
+GET {{baseUrl}}/meetings/{{meetingId}}
+
+### Tuesday schedule -> 200
+GET {{baseUrl}}/managers/1/schedule?date=2026-11-24
+
+### Cancel -> 200; repeat is also 200 without a duplicate history entry
+PATCH {{baseUrl}}/meetings/{{meetingId}}
+Content-Type: application/json
+
+{"status":"cancelled"}
+
+### Tuesday schedule is now empty -> 200
+GET {{baseUrl}}/managers/1/schedule?date=2026-11-24
+
+### Cancelled meeting cannot be rescheduled -> 409 MEETING_CANCELLED
+PATCH {{baseUrl}}/meetings/{{meetingId}}
+Content-Type: application/json
+
+{"startsAt":"2026-11-25T05:00:00Z"}
